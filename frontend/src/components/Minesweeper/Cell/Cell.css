@@ -1,0 +1,109 @@
+.Cell_open {
+  aspect-ratio: 1;
+  background-color: white;
+  color: black;
+  align-content: center;
+  text-align: center;
+  transition: background-color 0.1s ease-in-out;
+  cursor: default;
+}
+
+.Cell_bomb {
+  background-image: url(../../../assets/bomb.svg);
+  background-size: 65%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.Cell_normal {
+  aspect-ratio: 1;
+  background-color: #ffd20a; /* Golden Yellow */
+  border: 0.25em solid #b8860b;
+  border-top-color: #ffeea9; /* Light Gold (Top) */
+  border-left-color: #ffeea9; /* Light Gold (Left) */
+  cursor: pointer;
+  outline: none;
+  transition:
+    background-color 0.1s ease-in-out,
+    border-color 0.1s ease-in-out;
+}
+
+.Cell_normal:hover {
+  background-color: #ffe15a;
+}
+
+.Cell_normal:active {
+  border-image: none;
+  background-color: #d9ad00;
+  border-color: #d9ad00;
+}
+
+:root {
+  /* --pink-color: #ff0082;
+  --light-pink-color: #ff86c4;
+  --dark-pink: #e60077;
+  --dark-pink-light: #e50076; */
+
+  --pink-color: black;
+  --light-pink-color: white;
+  --dark-pink: #black;
+  --dark-pink-light: #e50076;
+}
+
+.Cell_pressed {
+  border-image: none;
+  background-color: var(--pink-color);
+  border: var(--pink-color);
+  box-shadow: 0px 0px 0px 0.1em var(--light-pink-color);
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition:
+    background-color 0.1s ease-in-out,
+    border-color 0.1s ease-in-out;
+}
+
+.Cell_pressed:hover {
+  background-color: var(--dark-pink);
+  border: var(--dark-pink-light);
+  box-shadow: 0px 0px 0px 0.1em var(--light-pink-color);
+  transition:
+    background-color 0.3s ease-in-out,
+    border-color 0.3s ease-in-out;
+}
+
+.Cell_pressed:active {
+  color: black;
+  background-color: white;
+  border: black;
+  box-shadow: 0px 0px 0px 0.15em black;
+
+  transition:
+    background-color 0.3s ease-in-out,
+    border-color 0.3s ease-in-out,
+    box-shadow 0.3s ease-in-out;
+}
+
+.Cell_waiting {
+  border-image: none;
+  background-color: #ffffff;
+  border: #ffffff;
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition:
+    background-color 0.3s ease-in-out,
+    border-color 0.3s ease-in-out;
+}
+
+.Cell_waiting:hover {
+  background-color: #ffffff;
+  border: #ffffff;
+}
+
+.Cell_waiting:active {
+  background-color: #ffffff;
+  border: #ffffff;
+}
