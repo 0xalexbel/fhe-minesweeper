@@ -6,6 +6,87 @@
 npx hardhat test
 ```
 
+## Deploy on Sepolia
+
+```bash
+npm run deploy-sepolia
+```
+
+## Playing using the CLI
+
+### Default Test Board
+
+```
+(0)  0 1 0 0 0 0 0 0 0 0 0
+(1)  0 0 1 1 0 0 0 0 0 1 0
+(2)  0 0 0 0 0 0 0 0 0 1 0
+(3)  0 0 0 0 0 0 0 0 0 0 0
+(4)  1 0 0 0 0 1 0 0 0 0 1
+(5)  0 0 0 0 0 0 0 0 0 0 0
+(6)  0 0 1 1 0 0 0 0 0 0 0
+(7)  0 0 0 0 0 0 0 0 0 0 1
+(8)  0 0 0 0 0 0 1 0 0 0 0
+(9)  0 0 0 0 0 0 0 1 0 0 0
+(10) 0 0 0 0 0 0 0 0 0 0 0
+```
+
+```bash
+# Account #1 creates a default board game for player with account #0
+# The first clean cell is located at row=7 col=5
+npx hardhat --network sepolia minesweeper create --player 0 --creator 1
+```
+
+```bash
+# Account #0 wants to reveal the first cell at row 7 and column 5
+npx hardhat --network sepolia minesweeper play --row 7 --col 5
+```
+
+The output is:
+
+```bash
+(0)   X  X  X  X  X  X  X  X  X  X  X
+(1)   X  X  X  X  X  X  X  X  X  X  X
+(2)   X  X  X  X  X  X  X  X  X  X  X
+(3)   X  X  X  X  X  X  X  X  X  X  X
+(4)   X  X  X  X  X  X  X  X  X  X  X
+(5)   X  X  X  X  X  X  X  X  X  X  X
+(6)   X  X  X  X  X  X  X  X  X  X  X
+(7)   X  X  X  X  X  1  X  X  X  X  X
+(8)   X  X  X  X  X  X  X  X  X  X  X
+(9)   X  X  X  X  X  X  X  X  X  X  X
+(10)  X  X  X  X  X  X  X  X  X  X  X
+```
+
+```bash
+# Account #0 wants to reveal cell at row 6 and column 5
+npx hardhat --network sepolia minesweeper play --row 6 --col 5
+# etc...
+```
+
+```bash
+# To display the current board game (played by account #0)
+npx hardhat --network sepolia minesweeper print-board
+```
+
+## Playing using the UI
+
+### In simulator mode
+
+The command below will run the dApp in full simulation mode. This was a `costly` workaround to have the UI running in mock mode. A full `typescript` version of the contract has been developed to mock the solidity behaviour.
+
+```bash
+cd ./frontend/
+# Runs a simulator instead of the expected 'hardhat node' since the gateway is not working
+npm run dev-sim
+```
+
+### On Sepolia
+
+```bash
+cd ./frontend/
+npm run dev
+```
+
 ## Issues
 
 - The minesweeper uses the gateway for on-chain decryption which does not seem to be 100% accurate in `hardhat node` mock mode.

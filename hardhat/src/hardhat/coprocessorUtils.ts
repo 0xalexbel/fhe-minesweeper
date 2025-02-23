@@ -1,24 +1,25 @@
-/*eslint-disable @typescript-eslint/ban-ts-comment */
 import { ethers as EthersT } from "ethers";
 import { log2 } from "extra-bigint";
 import { Database } from "sqlite3";
 
-import { TFHEEXECUTOR_ADDRESS } from "../src/constants";
-
-//const provider = new EthersT.JsonRpcProvider("http://127.0.0.1:8545");
+import operatorPrices from "../../test/operatorPrices.json";
+import { TFHEEXECUTOR_ADDRESS } from "../constants";
 
 const executorAddress = TFHEEXECUTOR_ADDRESS;
 
+type TypeKeys18 = "1" | "2" | "3" | "4" | "5" | "6" | "8";
+type TypeKeys08 = "0" | TypeKeys18;
+type TypeKeys011 = "0" | TypeKeys18 | "9" | "10" | "11";
+type TypeKeysAll = "7" | TypeKeys011;
+
 let firstBlockListening = 0;
+let lastBlockSnapshot = 0;
+let lastCounterRand = 0;
 /* eslint-disable @typescript-eslint/no-unused-vars */
 let counterRand = 0;
 
 //const db = new Database("./sql.db"); // on-disk db for debugging
 const db = new Database(":memory:");
-
-export const awaitCoprocessor = async (readOnlyProvider: EthersT.Provider): Promise<void> => {
-  await __processAllPastTFHEExecutorEvents(readOnlyProvider);
-};
 
 export function insertSQL(handle: string, clearText: bigint | string, replace: boolean = false) {
   if (replace) {
@@ -32,7 +33,6 @@ export function insertSQL(handle: string, clearText: bigint | string, replace: b
 // Decrypt any handle, bypassing ACL
 // WARNING : only for testing or internal use
 export const getClearText = async (handle: bigint): Promise<string> => {
-  console.log("getClearText = " + handle);
   const handleStr = "0x" + handle.toString(16).padStart(64, "0");
 
   return new Promise((resolve, reject) => {
@@ -49,7 +49,7 @@ export const getClearText = async (handle: bigint): Promise<string> => {
           attempts++;
           executeQuery();
         } else {
-          reject(new Error(`No record found after maximum retries handle=${BigInt(handleStr)}`));
+          reject(new Error("No record found after maximum retries"));
         }
       });
     }
@@ -153,10 +153,39 @@ const abi = [
   "event FheRandBounded(uint256 upperBound, bytes1 randType, uint256 result)",
 ];
 
-async function __processAllPastTFHEExecutorEvents(readOnlyProvider: EthersT.Provider) {
-  const latestBlockNumber = await readOnlyProvider.getBlockNumber();
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export interface FhevmCoprocessorProvider extends EthersT.Provider {
+  send?: (method: string, params?: any[]) => Promise<any>;
+}
 
-  const contract = new EthersT.Contract(executorAddress, abi, readOnlyProvider);
+export const awaitCoprocessor = async (fhevmCoprocessorProvider: FhevmCoprocessorProvider): Promise<void> => {
+  await __processAllPastTFHEExecutorEvents(fhevmCoprocessorProvider);
+};
+
+// Must use hardhat here!
+async function __processAllPastTFHEExecutorEvents(fhevmCoprocessorProvider: FhevmCoprocessorProvider) {
+  // const provider = hre.ethers.provider;
+  // const readOnlyProvider = provider;
+  const latestBlockNumber = await fhevmCoprocessorProvider.getBlockNumber();
+
+  // if (hre.__SOLIDITY_COVERAGE_RUNNING !== true) {
+  //   // evm_snapshot is not supported in coverage mode
+  //   [lastBlockSnapshot, lastCounterRand] = await provider.send("get_lastBlockSnapshot");
+  //   if (lastBlockSnapshot < firstBlockListening) {
+  //     firstBlockListening = lastBlockSnapshot + 1;
+  //     counterRand = Number(lastCounterRand);
+  //   }
+  // }
+  if (fhevmCoprocessorProvider.send !== undefined) {
+    // evm_snapshot is not supported in coverage mode
+    [lastBlockSnapshot, lastCounterRand] = await fhevmCoprocessorProvider.send("get_lastBlockSnapshot");
+    if (lastBlockSnapshot < firstBlockListening) {
+      firstBlockListening = lastBlockSnapshot + 1;
+      counterRand = Number(lastCounterRand);
+    }
+  }
+
+  const contract = new EthersT.Contract(executorAddress, abi, fhevmCoprocessorProvider);
 
   // Fetch all events emitted by the contract
   const filter = {
@@ -165,7 +194,7 @@ async function __processAllPastTFHEExecutorEvents(readOnlyProvider: EthersT.Prov
     toBlock: latestBlockNumber,
   };
 
-  const logs = await readOnlyProvider.getLogs(filter);
+  const logs = await fhevmCoprocessorProvider.getLogs(filter);
 
   const events = logs
     .map((log) => {
@@ -183,6 +212,15 @@ async function __processAllPastTFHEExecutorEvents(readOnlyProvider: EthersT.Prov
     .filter((event) => event !== null);
 
   firstBlockListening = latestBlockNumber + 1;
+
+  // if (hre.__SOLIDITY_COVERAGE_RUNNING !== true) {
+  //   // evm_snapshot is not supported in coverage mode
+  //   await provider.send("set_lastBlockSnapshot", [firstBlockListening]);
+  // }
+  if (fhevmCoprocessorProvider.send !== undefined) {
+    // evm_snapshot is not supported in coverage mode
+    await fhevmCoprocessorProvider.send("set_lastBlockSnapshot", [firstBlockListening]);
+  }
 
   events.map(async (event) => await insertHandleFromEvent(event));
 }
@@ -561,7 +599,7 @@ async function insertHandleFromEvent(event: FHEVMEvent) {
       try {
         await getClearText(BigInt(handle));
       } catch {
-        throw Error(`User input was not found in DB handle=${BigInt(handle)}`);
+        throw Error("User input was not found in DB");
       }
       break;
 
@@ -580,7 +618,6 @@ async function insertHandleFromEvent(event: FHEVMEvent) {
       insertSQL(handle, clearText);
       break;
     }
-
     case "FheRand":
       resultType = parseInt(event.args[0 as keyof typeof event.args], 16);
       handle = EthersT.toBeHex(event.args[1 as keyof typeof event.args], 32);
@@ -641,25 +678,23 @@ export function getFHEGasFromTxReceipt(
     switch (event.name) {
       case "TrivialEncrypt":
         type = parseInt(event.args[1 as keyof typeof event.args], 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["trivialEncrypt"].types[type];
+
+        FHEGasConsumed += operatorPrices["trivialEncrypt"].types[type.toString() as TypeKeysAll];
         break;
 
       case "TrivialEncryptBytes":
         type = parseInt(event.args[1 as keyof typeof event.args], 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["trivialEncrypt"].types[type];
+
+        FHEGasConsumed += operatorPrices["trivialEncrypt"].types[type.toString() as TypeKeysAll];
         break;
 
       case "FheAdd":
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheAdd"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheAdd"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheAdd"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheAdd"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -667,11 +702,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheSub"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheSub"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheSub"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheSub"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -679,11 +712,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheMul"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheMul"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheMul"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheMul"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -691,8 +722,7 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheDiv"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheDiv"].scalar[type.toString() as TypeKeys18];
         } else {
           throw new Error("Non-scalar div not implemented yet");
         }
@@ -702,8 +732,7 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheRem"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheRem"].scalar[type.toString() as TypeKeys18];
         } else {
           throw new Error("Non-scalar rem not implemented yet");
         }
@@ -713,11 +742,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitAnd"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheBitAnd"].scalar[type.toString() as TypeKeys08];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitAnd"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheBitAnd"].nonScalar[type.toString() as TypeKeys08];
         }
         break;
 
@@ -725,11 +752,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitOr"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheBitOr"].scalar[type.toString() as TypeKeys08];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitOr"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheBitOr"].nonScalar[type.toString() as TypeKeys08];
         }
         break;
 
@@ -737,11 +762,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitXor"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheBitXor"].scalar[type.toString() as TypeKeys08];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitXor"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheBitXor"].nonScalar[type.toString() as TypeKeys08];
         }
         break;
 
@@ -749,11 +772,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitShl"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheShl"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitShl"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheShl"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -761,11 +782,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitShr"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheShr"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheBitShr"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheShr"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -773,11 +792,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheRotl"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheRotl"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheRotl"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheRotl"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -785,11 +802,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheRotr"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheRotr"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheRotr"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheRotr"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -797,11 +812,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheEq"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheEq"].scalar[type.toString() as TypeKeysAll];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheEq"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheEq"].nonScalar[type.toString() as TypeKeysAll];
         }
         break;
 
@@ -809,11 +822,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheEq"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheEq"].scalar[type.toString() as TypeKeysAll];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheEq"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheEq"].nonScalar[type.toString() as TypeKeysAll];
         }
         break;
 
@@ -821,11 +832,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheNe"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheNe"].scalar[type.toString() as TypeKeysAll];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheNe"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheNe"].nonScalar[type.toString() as TypeKeysAll];
         }
         break;
 
@@ -833,11 +842,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheNe"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheNe"].scalar[type.toString() as TypeKeysAll];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheNe"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheNe"].nonScalar[type.toString() as TypeKeysAll];
         }
         break;
 
@@ -845,11 +852,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheGe"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheGe"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheGe"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheGe"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -857,11 +862,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheGt"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheGt"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheGt"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheGt"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -869,11 +872,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheLe"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheLe"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheLe"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheLe"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -881,11 +882,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheLt"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheLt"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheLt"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheLt"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -893,11 +892,9 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheMax"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheMax"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheMax"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheMax"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
@@ -905,52 +902,48 @@ export function getFHEGasFromTxReceipt(
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
         if (event.args[2 as keyof typeof event.args] === "0x01") {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheMin"].scalar[type];
+          FHEGasConsumed += operatorPrices["fheMin"].scalar[type.toString() as TypeKeys18];
         } else {
-          //@ts-ignore
-          FHEGasConsumed += operatorPrices["fheMin"].nonScalar[type];
+          FHEGasConsumed += operatorPrices["fheMin"].nonScalar[type.toString() as TypeKeys18];
         }
         break;
 
       case "Cast":
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["cast"].types[type];
+        FHEGasConsumed += operatorPrices["cast"].types[type.toString() as TypeKeys08];
         break;
 
       case "FheNot":
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["fheNot"].types[type];
+        FHEGasConsumed += operatorPrices["fheNot"].types[type.toString() as TypeKeys08];
         break;
 
       case "FheNeg":
         handle = EthersT.toBeHex(event.args[0 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["fheNeg"].types[type];
+
+        FHEGasConsumed += operatorPrices["fheNeg"].types[type.toString() as TypeKeys18];
         break;
 
       case "FheIfThenElse":
         handle = EthersT.toBeHex(event.args[3 as keyof typeof event.args], 32);
         type = parseInt(handle.slice(-4, -2), 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["ifThenElse"].types[type];
+
+        FHEGasConsumed += operatorPrices["ifThenElse"].types[type.toString() as TypeKeysAll];
         break;
 
       case "FheRand":
         type = parseInt(event.args[0 as keyof typeof event.args], 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["fheRand"].types[type];
+
+        FHEGasConsumed += operatorPrices["fheRand"].types[type.toString() as TypeKeys011];
         break;
 
       case "FheRandBounded":
         type = parseInt(event.args[1 as keyof typeof event.args], 16);
-        //@ts-ignore
-        FHEGasConsumed += operatorPrices["fheRandBounded"].types[type];
+
+        FHEGasConsumed += operatorPrices["fheRandBounded"].types[type.toString() as TypeKeys18];
         break;
     }
   }

@@ -1,7 +1,7 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers } from "hardhat";
 
-import { ACCOUNT_NAMES } from "./constants";
+import { ACCOUNT_NAMES } from "../src/constants";
 
 type AccountNames = (typeof ACCOUNT_NAMES)[number];
 

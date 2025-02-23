@@ -1,8 +1,8 @@
 import { expect } from "chai";
-import { network } from "hardhat";
+import hre from "hardhat";
 
-import { awaitAllDecryptionResults, initGateway } from "../asyncDecrypt";
-import { createInstance } from "../instance";
+import { awaitAllDecryptionResults, initGateway } from "../../src/hardhat/asyncDecrypt";
+import { createInstance } from "../../src/hardhat/instance";
 import { reencryptEuint64 } from "../reencrypt";
 import { getSigners, initSigners } from "../signers";
 import { debug } from "../utils";
@@ -12,14 +12,14 @@ describe("ConfidentialERC20", function () {
   before(async function () {
     await initSigners();
     this.signers = await getSigners();
-    await initGateway();
+    await initGateway(hre);
   });
 
   beforeEach(async function () {
     const contract = await deployConfidentialERC20Fixture();
     this.contractAddress = await contract.getAddress();
     this.erc20 = contract;
-    this.fhevm = await createInstance();
+    this.fhevm = await createInstance(hre);
   });
 
   it("should mint the contract", async function () {
@@ -183,13 +183,13 @@ describe("ConfidentialERC20", function () {
   it("should decrypt the SECRET value", async function () {
     const tx2 = await this.erc20.requestSecret();
     await tx2.wait();
-    await awaitAllDecryptionResults();
+    await awaitAllDecryptionResults(hre);
     const y = await this.erc20.revealedSecret();
     expect(y).to.equal(42n);
   });
 
   it("DEBUG - using debug.decrypt64 for debugging transfer", async function () {
-    if (network.name === "hardhat") {
+    if (hre.network.name === "hardhat") {
       // using the debug.decryptXX functions is possible only in mocked mode
 
       const transaction = await this.erc20.mint(this.signers.alice, 1000);
@@ -205,12 +205,12 @@ describe("ConfidentialERC20", function () {
       await tx.wait();
 
       const balanceHandleAlice = await this.erc20.balanceOf(this.signers.alice);
-      const balanceAlice = await debug.decrypt64(balanceHandleAlice);
+      const balanceAlice = await debug.decrypt64(hre, balanceHandleAlice);
       expect(balanceAlice).to.equal(1000);
 
       // Reencrypt Bob's balance
       const balanceHandleBob = await this.erc20.balanceOf(this.signers.bob);
-      const balanceBob = await debug.decrypt64(balanceHandleBob);
+      const balanceBob = await debug.decrypt64(hre, balanceHandleBob);
       expect(balanceBob).to.equal(0);
     }
   });

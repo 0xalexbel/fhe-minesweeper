@@ -2,36 +2,42 @@ import React from 'react';
 
 import './Cell.css';
 
-export type CellState = 'open-bomb' | 'open-num' | 'open-empty' | 'closed';
-
-type Props = {
+export type CellProps = {
   id: number;
-  state: CellState;
-  number: number;
-  selected: boolean;
-  waiting: boolean;
-  onClick: (id: number, state: CellState, selected: boolean) => void;
+  number?: number;
+  selected?: boolean;
+  waiting?: boolean;
+  enabled?: boolean;
+  onClick?: (id: number, selected: boolean, waiting: boolean) => void;
 };
 
-export const Cell: React.FC<Props> = ({
+export const Cell: React.FC<CellProps> = ({
   id,
-  state,
   number,
   selected,
   waiting,
+  enabled,
   onClick,
-}: Props) => {
-  if (state === 'closed') {
-    if (id === 0) {
-      console.log('CLOSED');
-    }
+}: CellProps) => {
+  number ??= 0;
+  selected ??= false;
+  waiting ??= false;
+  enabled ??= false;
 
+  const revealed = number > 0;
+  const numOfAdjacentBombs = revealed ? number - 1 : 0;
+
+  if (!enabled) {
+    return <div id={`Cell${id}`} className="Cell_disabled select-none"></div>;
+  }
+
+  if (!revealed) {
     if (!selected) {
       return (
         <div
           id={`Cell${id}`}
-          className="Cell_normal"
-          onClick={!waiting ? () => onClick(id, state, selected) : undefined}
+          className={waiting ? 'Cell_normal_waiting' : 'Cell_normal'}
+          onClick={onClick ? () => onClick(id, selected, waiting) : undefined}
         ></div>
       );
     } else {
@@ -46,25 +52,26 @@ export const Cell: React.FC<Props> = ({
           <div
             id={`Cell${id}`}
             className="Cell_normal Cell_pressed z-1000 rounded text-5xl select-none"
-            onClick={() => onClick(id, state, selected)}
+            onClick={onClick ? () => onClick(id, selected, waiting) : undefined}
           >
             ?
           </div>
         );
       }
     }
-  } else if (state === 'open-bomb') {
+  } else if (numOfAdjacentBombs >= 9) {
     return <div id={`Cell${id}`} className="Cell_open Cell_bomb"></div>;
-  } else if (state === 'open-num') {
+  } else if (numOfAdjacentBombs >= 1) {
     return (
       <div
         id={`Cell${id}`}
         className="Cell_open select-none text-3xl font-bold"
       >
-        {number}
+        {numOfAdjacentBombs}
       </div>
     );
-  } else if (state === 'open-empty') {
+  } else {
+    // num == 0
     return <div id={`Cell${id}`} className="Cell_open"></div>;
   }
 };

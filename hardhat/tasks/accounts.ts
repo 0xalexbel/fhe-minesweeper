@@ -1,6 +1,6 @@
 import { task, types } from "hardhat/config";
 
-import { ACCOUNT_NAMES } from "../test/constants";
+import { ACCOUNT_NAMES } from "../src/constants";
 
 task("get-accounts", "Prints the list of accounts")
   .addParam("numAccounts", "Number of accounts to return (1-10)", 3, types.int)

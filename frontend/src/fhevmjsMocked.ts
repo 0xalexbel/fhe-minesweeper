@@ -378,7 +378,7 @@ const encryptValues = async (
   if (data.status === 'error') throw new Error(data.message);
 
   return {
-    handles: data.handles.map((h) => ethers.getBytes(h)),
+    handles: data.handles.map((h: ethers.BytesLike) => ethers.getBytes(h)),
     inputProof: ethers.getBytes(data.inputProof),
   };
 };

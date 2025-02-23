@@ -19,7 +19,7 @@ import {
 } from './fhevmjsMocked';
 
 const ACL_ADDRESS: string = import.meta.env.VITE_ACL_ADDRESS;
-const MOCKED: string = import.meta.env.MOCKED;
+const MOCKED: string = import.meta.env.MOCKED || import.meta.env.SIMULATOR;
 
 export type Keypair = {
   publicKey: string;

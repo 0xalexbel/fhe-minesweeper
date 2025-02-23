@@ -1,3 +1,4 @@
+/*eslint-disable @typescript-eslint/ban-ts-comment */
 import { toBufferBE } from "bigint-buffer";
 import cors from "cors";
 import crypto from "crypto";
@@ -11,8 +12,8 @@ import {
   KMSVERIFIER_ADDRESS,
   PRIVATE_KEY_COPROCESSOR_ACCOUNT,
   PRIVATE_KEY_KMS_SIGNER,
-} from "../test/constants";
-import { initGateway } from "./asyncDecrypt";
+} from "../src/constants";
+import { createAsyncDecryptRuntime, initGateway } from "./asyncDecrypt";
 import { awaitCoprocessor, getClearText, insertSQL } from "./coprocessorUtils";
 
 const provider = new JsonRpcProvider("http://127.0.0.1:8545");
@@ -60,6 +61,14 @@ app.use(cors());
 app.use(express.json());
 const port = 3000;
 
+app.post("/version", async (req: Request, res: Response<ApiResponse>) => {
+  res.json({
+    status: "success",
+    result: "MockFhevmGateway v0.1.0",
+  });
+});
+
+//@ts-ignore
 app.post("/get-clear-text", async (req: Request, res: Response<ApiResponse>) => {
   try {
     const { handle } = req.body;
@@ -74,14 +83,14 @@ app.post("/get-clear-text", async (req: Request, res: Response<ApiResponse>) => 
     let bigintHandle: bigint;
     try {
       bigintHandle = BigInt(handle);
-    } catch (error) {
+    } catch /*(error)*/ {
       return res.status(400).json({
         status: "error",
         message: "Invalid bigint format",
       });
     }
 
-    await awaitCoprocessor();
+    await awaitCoprocessor(provider);
     const result = await getClearText(bigintHandle);
 
     res.json({
@@ -117,11 +126,14 @@ type EncryptionKey = keyof typeof ENCRYPTION_TYPES;
 interface EncryptRequest {
   values: string[];
   bits: EncryptionKey[];
+  userAddress: string;
+  contractAddress: string;
 }
 
 interface EncryptResponse {
   status: "success" | "error";
-  handles?: Uint8Array[];
+  //handles?: Uint8Array[];
+  handles?: string[];
   inputProof?: string;
   message?: string;
 }
@@ -176,6 +188,7 @@ async function encrypt(
   };
 }
 
+/* eslint-disable @typescript-eslint/no-empty-object-type */
 app.post("/encrypt", async (req: Request<{}, {}, EncryptRequest>, res: Response<EncryptResponse>) => {
   try {
     const { values, bits, userAddress, contractAddress } = req.body;
@@ -416,7 +429,7 @@ app.listen(port, async () => {
   console.log(`Server running at http://localhost:${port}`);
 
   return new Promise((resolve) => setTimeout(resolve, 4000)).then(() => {
-    console.log(`INIT`);
-    return initGateway();
+    const asyncDecryptRuntime = createAsyncDecryptRuntime();
+    return initGateway(asyncDecryptRuntime);
   });
 });

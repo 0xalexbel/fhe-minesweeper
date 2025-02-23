@@ -1,7 +1,10 @@
+/*eslint-disable @typescript-eslint/ban-ts-comment */
+import assert from "assert";
 import { toBigIntBE, toBufferBE } from "bigint-buffer";
 import crypto from "crypto";
-import { Wallet, ethers } from "ethers";
-import hre from "hardhat";
+import { ethers as EthersT } from "ethers";
+import { ZKInput } from "fhevmjs/lib/sdk/encrypt";
+import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { Keccak } from "sha3";
 import { isAddress } from "web3-validator";
 
@@ -11,7 +14,7 @@ import {
   KMSVERIFIER_ADDRESS,
   PRIVATE_KEY_COPROCESSOR_ACCOUNT,
   PRIVATE_KEY_KMS_SIGNER,
-} from "./constants";
+} from "../constants";
 import { insertSQL } from "./coprocessorUtils";
 import { awaitCoprocessor, getClearText } from "./coprocessorUtils";
 
@@ -111,6 +114,8 @@ function createUintToUint8ArrayFunction(numBits: number) {
 }
 
 export const reencryptRequestMocked = async (
+  hre: HardhatRuntimeEnvironment,
+  chainId: number,
   handle: bigint,
   privateKey: string,
   publicKey: string,
@@ -118,11 +123,13 @@ export const reencryptRequestMocked = async (
   contractAddress: string,
   userAddress: string,
 ) => {
+  assert(chainId !== undefined);
+
   // Signature checking:
   const domain = {
     name: "Authorization token",
     version: "1",
-    chainId: hre.network.config.chainId,
+    chainId,
     verifyingContract: contractAddress,
   };
   const types = {
@@ -131,15 +138,15 @@ export const reencryptRequestMocked = async (
   const value = {
     publicKey: `0x${publicKey}`,
   };
-  const signerAddress = ethers.verifyTypedData(domain, types, value, `0x${signature}`);
-  const normalizedSignerAddress = ethers.getAddress(signerAddress);
-  const normalizedUserAddress = ethers.getAddress(userAddress);
+  const signerAddress = hre.ethers.verifyTypedData(domain, types, value, `0x${signature}`);
+  const normalizedSignerAddress = hre.ethers.getAddress(signerAddress);
+  const normalizedUserAddress = hre.ethers.getAddress(userAddress);
   if (normalizedSignerAddress !== normalizedUserAddress) {
     throw new Error("Invalid EIP-712 signature!");
   }
 
   // ACL checking
-  const aclArtifact = require("fhevm-core-contracts/artifacts/contracts/ACL.sol/ACL.json");
+  const aclArtifact = await import("fhevm-core-contracts/artifacts/contracts/ACL.sol/ACL.json");
   const acl = await hre.ethers.getContractAt(aclArtifact.abi, ACL_ADDRESS);
   const userAllowed = await acl.persistAllowed(handle, userAddress);
   const contractAllowed = await acl.persistAllowed(handle, contractAddress);
@@ -150,11 +157,16 @@ export const reencryptRequestMocked = async (
   if (userAddress === contractAddress) {
     throw new Error("userAddress should not be equal to contractAddress when requesting reencryption!");
   }
-  await awaitCoprocessor();
+  await awaitCoprocessor(hre.ethers.provider);
   return BigInt(await getClearText(handle));
 };
 
-export const createEncryptedInputMocked = (contractAddress: string, userAddress: string) => {
+export const createEncryptedInputMocked = (
+  hre: HardhatRuntimeEnvironment & { __SOLIDITY_COVERAGE_RUNNING?: boolean },
+  chainId: number,
+  contractAddress: string,
+  userAddress: string,
+): ZKInput => {
   if (!isAddress(contractAddress)) {
     throw new Error("Contract address is not a valid address.");
   }
@@ -165,6 +177,7 @@ export const createEncryptedInputMocked = (contractAddress: string, userAddress:
 
   const values: bigint[] = [];
   const bits: (keyof typeof ENCRYPTION_TYPES)[] = [];
+  //@ts-ignore
   return {
     addBool(value: boolean | number | bigint) {
       if (value == null) throw new Error("Missing value");
@@ -274,18 +287,21 @@ export const createEncryptedInputMocked = (contractAddress: string, userAddress:
       if (bits.length > 256) throw Error("Packing more than 256 variables in a single input ciphertext is unsupported");
       return this;
     },
-    getValues() {
-      return values;
-    },
+    // getValues() {
+    //   return values;
+    // },
     getBits() {
       return bits;
     },
-    resetValues() {
-      values.length = 0;
-      bits.length = 0;
-      return this;
-    },
-    async encrypt() {
+    // resetValues() {
+    //   values.length = 0;
+    //   bits.length = 0;
+    //   return this;
+    // },
+    async encrypt(): Promise<{
+      handles: Uint8Array[];
+      inputProof: Uint8Array;
+    }> {
       let encrypted = Buffer.alloc(0);
 
       bits.map((v, i) => {
@@ -317,6 +333,8 @@ export const createEncryptedInputMocked = (contractAddress: string, userAddress:
       listHandlesStr.map((handle) => (inputProof += handle));
       const listHandles = listHandlesStr.map((i) => BigInt("0x" + i));
       const sigCoproc = await computeInputSignatureCopro(
+        hre,
+        chainId,
         "0x" + hash.toString("hex"),
         listHandles,
         userAddress,
@@ -324,7 +342,13 @@ export const createEncryptedInputMocked = (contractAddress: string, userAddress:
       );
       inputProof += sigCoproc.slice(2);
 
-      const signaturesKMS = await computeInputSignaturesKMS("0x" + hash.toString("hex"), userAddress, contractAddress);
+      const signaturesKMS = await computeInputSignaturesKMS(
+        hre,
+        chainId,
+        "0x" + hash.toString("hex"),
+        userAddress,
+        contractAddress,
+      );
       signaturesKMS.map((sigKMS) => (inputProof += sigKMS.slice(2)));
       listHandlesStr.map((handle, i) => insertSQL("0x" + handle, values[i]));
       /*} else {
@@ -344,7 +368,7 @@ export const createEncryptedInputMocked = (contractAddress: string, userAddress:
 
       return {
         handles,
-        inputProof,
+        inputProof: hre.ethers.toBeArray(inputProof),
       };
     },
   };
@@ -391,18 +415,22 @@ export const ENCRYPTION_TYPES = {
 };
 
 async function computeInputSignatureCopro(
+  hre: HardhatRuntimeEnvironment,
+  chainId: number,
   hash: string,
   handlesList: bigint[],
   userAddress: string,
   contractAddress: string,
 ): Promise<string> {
   const privKeySigner = PRIVATE_KEY_COPROCESSOR_ACCOUNT;
-  const coprocSigner = new Wallet(privKeySigner).connect(ethers.provider);
-  const signature = await coprocSign(hash, handlesList, userAddress, contractAddress, coprocSigner);
+  const coprocSigner = new EthersT.Wallet(privKeySigner).connect(hre.ethers.provider);
+  const signature = await coprocSign(hre, chainId, hash, handlesList, userAddress, contractAddress, coprocSigner);
   return signature;
 }
 
 async function computeInputSignaturesKMS(
+  hre: HardhatRuntimeEnvironment,
+  chainId: number,
   hash: string,
   userAddress: string,
   contractAddress: string,
@@ -411,22 +439,24 @@ async function computeInputSignaturesKMS(
   const numSigners = 1; // @note: only 1 KMS signer in mocked mode for now
   for (let idx = 0; idx < numSigners; idx++) {
     const privKeySigner = PRIVATE_KEY_KMS_SIGNER;
-    const kmsSigner = new ethers.Wallet(privKeySigner).connect(ethers.provider);
-    const signature = await kmsSign(hash, userAddress, contractAddress, kmsSigner);
+    const kmsSigner = new EthersT.Wallet(privKeySigner).connect(hre.ethers.provider);
+    const signature = await kmsSign(hre, chainId, hash, userAddress, contractAddress, kmsSigner);
     signatures.push(signature);
   }
   return signatures;
 }
 
 async function coprocSign(
+  hre: HardhatRuntimeEnvironment & { __SOLIDITY_COVERAGE_RUNNING?: boolean },
+  chainId: number,
   hashOfCiphertext: string,
   handlesList: bigint[],
   userAddress: string,
   contractAddress: string,
-  signer: Wallet,
+  signer: EthersT.Wallet,
 ): Promise<string> {
+  assert(chainId !== undefined);
   const inputAdd = INPUTVERIFIER_ADDRESS;
-  const chainId = hre.__SOLIDITY_COVERAGE_RUNNING ? 31337 : network.config.chainId;
   const aclAdd = ACL_ADDRESS;
 
   const domain = {
@@ -469,7 +499,7 @@ async function coprocSign(
   };
 
   const signature = await signer.signTypedData(domain, types, message);
-  const sigRSV = ethers.Signature.from(signature);
+  const sigRSV = hre.ethers.Signature.from(signature);
   const v = 27 + sigRSV.yParity;
   const r = sigRSV.r;
   const s = sigRSV.s;
@@ -479,13 +509,15 @@ async function coprocSign(
 }
 
 async function kmsSign(
+  hre: HardhatRuntimeEnvironment & { __SOLIDITY_COVERAGE_RUNNING?: boolean },
+  chainId: number,
   hashOfCiphertext: string,
   userAddress: string,
   contractAddress: string,
-  signer: Wallet,
+  signer: EthersT.Wallet,
 ): Promise<string> {
+  assert(chainId !== undefined);
   const kmsVerifierAdd = KMSVERIFIER_ADDRESS;
-  const chainId = hre.__SOLIDITY_COVERAGE_RUNNING ? 31337 : network.config.chainId;
   const aclAdd = ACL_ADDRESS;
 
   const domain = {
@@ -523,7 +555,7 @@ async function kmsSign(
   };
 
   const signature = await signer.signTypedData(domain, types, message);
-  const sigRSV = ethers.Signature.from(signature);
+  const sigRSV = hre.ethers.Signature.from(signature);
   const v = 27 + sigRSV.yParity;
   const r = sigRSV.r;
   const s = sigRSV.s;

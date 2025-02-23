@@ -9,11 +9,12 @@ import { task } from "hardhat/config";
 import type { NetworkUserConfig } from "hardhat/types";
 
 import CustomProvider from "./CustomProvider";
+import { setCodeMocked } from "./src/hardhat/mockedSetup";
 // Adjust the import path as needed
 import "./tasks/accounts";
 import "./tasks/etherscanVerify";
+import "./tasks/minesweeper";
 import "./tasks/mintMyConfidentialERC20";
-import { setCodeMocked } from "./test/mockedSetup";
 
 extendProvider(async (provider) => {
   const newProvider = new CustomProvider(provider);
@@ -73,8 +74,8 @@ task("test", async (_taskArgs, hre, runSuper) => {
   await runSuper();
 });
 
-task("node", async (_taskArgs, hre, runSuper) => {
-  await setCodeMocked(hre);
+task("fhevm-node", async (_taskArgs, hre) => {
+  // await setCodeMocked(hre);
   const server = spawn("ts-node", ["--transpile-only", "mockedServices/server.ts"], {
     stdio: "inherit",
   });
@@ -83,7 +84,8 @@ task("node", async (_taskArgs, hre, runSuper) => {
     server.kill();
     process.exit(0);
   });
-  await runSuper();
+
+  await hre.run("node", _taskArgs);
 });
 
 const config: HardhatUserConfig = {
@@ -106,6 +108,11 @@ const config: HardhatUserConfig = {
         count: 10,
         mnemonic,
         path: "m/44'/60'/0'/0",
+      },
+      allowUnlimitedContractSize: false,
+      mining: {
+        auto: true,
+        interval: 5000,
       },
     },
     sepolia: getChainConfig("sepolia"),

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import tailwindcss from "@tailwindcss/vite";
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import path from 'path';
@@ -13,6 +13,7 @@ export default defineConfig({
   plugins: [react(), nodePolyfills(), tailwindcss()],
   define: {
     'import.meta.env.MOCKED': process.env.MOCKED === 'true',
+    'import.meta.env.SIMULATOR': process.env.SIMULATOR === 'true',
   },
   resolve: {
     alias: {

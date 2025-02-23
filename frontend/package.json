@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "dev-mocked": "MOCKED=true node scripts/dev.js",
+    "dev-sim": "SIMULATOR=true node scripts/dev.js",
     "build": "tsc && vite build",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",

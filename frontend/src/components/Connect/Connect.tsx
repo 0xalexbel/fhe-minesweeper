@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BrowserProvider, Provider } from 'ethers';
+import { BrowserProvider, ethers } from 'ethers';
 
 import './Connect.css';
 import { Eip1193Provider } from 'ethers';
@@ -21,7 +21,7 @@ export const Connect: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [readOnlyProvider, setReadOnlyProvider] =
-    useState<JsonRpcProvider | null>(null);
+    useState<ethers.JsonRpcApiProvider | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refreshAccounts = (accounts: string[]) => {
@@ -30,6 +30,10 @@ export const Connect: React.FC<{
   };
 
   const hasValidNetwork = async (): Promise<boolean> => {
+    if (import.meta.env.SIMULATOR) {
+      return true;
+    }
+
     const currentChainId: string = (
       await window.ethereum.request({
         method: 'eth_chainId',
@@ -44,9 +48,19 @@ export const Connect: React.FC<{
   const refreshNetwork = useCallback(async () => {
     if (await hasValidNetwork()) {
       setValidNetwork(true);
+
+      if (import.meta.env.SIMULATOR) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       const load = async () => {
-        await createFhevmInstance();
+        try {
+          await createFhevmInstance();
+        } catch (e) {
+          throw e;
+        }
         try {
           setLoading(false);
         } catch (e) {}
@@ -60,7 +74,7 @@ export const Connect: React.FC<{
   const refreshProvider = (eth: Eip1193Provider) => {
     const p = new BrowserProvider(eth);
     setProvider(p);
-    if (!import.meta.env.MOCKED) {
+    if (!(import.meta.env.MOCKED || import.meta.env.SIMULATOR)) {
       setReadOnlyProvider(p);
     } else {
       const pRO = new JsonRpcProvider('http://127.0.0.1:8545');
@@ -111,12 +125,17 @@ export const Connect: React.FC<{
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
         params: [
-          { chainId: AUTHORIZED_CHAIN_ID[import.meta.env.MOCKED ? 2 : 0] },
+          {
+            chainId:
+              AUTHORIZED_CHAIN_ID[
+                import.meta.env.MOCKED || import.meta.env.SIMULATOR ? 2 : 0
+              ],
+          },
         ],
       });
     } catch (e) {
       console.error(
-        `No ${import.meta.env.MOCKED ? 'Hardhat' : 'Sepolia'} chain configured`,
+        `No ${import.meta.env.MOCKED || import.meta.env.SIMULATOR ? 'Hardhat' : 'Sepolia'} chain configured`,
       );
     }
   }, []);
@@ -137,7 +156,10 @@ export const Connect: React.FC<{
             </div>
             <div>
               <button className="Connect__blackButton" onClick={switchNetwork}>
-                Switch to {import.meta.env.MOCKED ? 'Hardhat' : 'Sepolia'}
+                Switch to{' '}
+                {import.meta.env.MOCKED || import.meta.env.SIMULATOR
+                  ? 'Hardhat'
+                  : 'Sepolia'}
               </button>
             </div>
           </>

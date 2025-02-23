@@ -15,6 +15,31 @@
   background-position: center;
 }
 
+.Cell_disabled {
+  aspect-ratio: 1;
+  background-color: #3f3f3f; /* Golden Yellow */
+  border: 0.25em solid #222222;
+  border-top-color: #666666; /* Light Gold (Top) */
+  border-left-color: #666666; /* Light Gold (Left) */
+  outline: none;
+  transition:
+    background-color 0.1s ease-in-out,
+    border-color 0.1s ease-in-out;
+}
+
+.Cell_normal_waiting {
+  aspect-ratio: 1;
+  background-color: #ffd20a; /* Golden Yellow */
+  border: 0.25em solid #b8860b;
+  border-top-color: #ffeea9; /* Light Gold (Top) */
+  border-left-color: #ffeea9; /* Light Gold (Left) */
+  cursor: pointer;
+  outline: none;
+  transition:
+    background-color 0.1s ease-in-out,
+    border-color 0.1s ease-in-out;
+}
+
 .Cell_normal {
   aspect-ratio: 1;
   background-color: #ffd20a; /* Golden Yellow */
