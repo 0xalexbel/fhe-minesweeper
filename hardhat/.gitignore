@@ -1,3 +1,5 @@
+TRASH/
+keys/
 !hardhat/deployments
 hardhat/deployments/*
 !hardhat/deployments/sepolia
