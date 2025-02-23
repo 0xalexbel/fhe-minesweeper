@@ -1,4 +1,9 @@
+<p align="center">
+<img src="https://github.com/user-attachments/assets/b6942766-af35-435f-afd3-abcbe50d0ead" width="300" height="300">
+</p>
+
 # FHEMinesweeper
+
 
 ## Run tests
 
